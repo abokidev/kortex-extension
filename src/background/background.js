@@ -1,9 +1,8 @@
 const API_BASE = 'https://kodingo-api.onrender.com';
 
-// ── Storage helpers ───────────────────────────────────────────────────────────
 async function getAuth() {
   return new Promise(resolve => {
-    chrome.storage.local.get(['kortex_jwt', 'kortex_email', 'kortex_org'], resolve);
+    chrome.storage.local.get(['kortex_jwt', 'kortex_email', 'kortex_orgs'], resolve);
   });
 }
 
@@ -21,19 +20,40 @@ async function setProjects(projects) {
   });
 }
 
-// ── API helpers ───────────────────────────────────────────────────────────────
-async function apiCall(path, options = {}) {
-  const { kortex_jwt } = await getAuth();
-  const headers = { 'Content-Type': 'application/json', ...options.headers };
-  if (kortex_jwt) headers['Authorization'] = `Bearer ${kortex_jwt}`;
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  return res;
+async function fetchAndStoreOrgs(jwt) {
+  const res = await fetch(`${API_BASE}/user/orgs`, {
+    headers: { 'Authorization': `Bearer ${jwt}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const orgs = data.orgs ?? [];
+
+  // Flatten all projects across all orgs, tagged with org info
+  const projects = [];
+  for (const org of orgs) {
+    for (const project of org.projects ?? []) {
+      projects.push({
+        name: project.name,
+        token: project.token,
+        id: project.id,
+        orgName: org.name,
+        orgId: org.id,
+        orgRole: org.role,
+      });
+    }
+  }
+
+  await chrome.storage.local.set({
+    kortex_projects: projects,
+    kortex_orgs: orgs.map(o => ({ id: o.id, name: o.name, role: o.role })),
+  });
+
+  return projects;
 }
 
-// ── Message handler ───────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   handleMessage(msg).then(sendResponse).catch(err => sendResponse({ error: err.message }));
-  return true; // keep channel open for async
+  return true;
 });
 
 async function handleMessage(msg) {
@@ -47,12 +67,15 @@ async function handleMessage(msg) {
       });
       const data = await res.json();
       if (!res.ok) return { error: data.error ?? 'Login failed' };
+
       await chrome.storage.local.set({
         kortex_jwt: data.token,
         kortex_email: msg.email,
-        kortex_org: data.orgName ?? '',
       });
-      return { ok: true, orgName: data.orgName };
+
+      // Auto-fetch all orgs and projects
+      const projects = await fetchAndStoreOrgs(data.token);
+      return { ok: true, projectCount: projects.length };
     }
 
     case 'LOGOUT': {
@@ -62,7 +85,7 @@ async function handleMessage(msg) {
 
     case 'GET_AUTH': {
       const auth = await getAuth();
-      return { jwt: auth.kortex_jwt, email: auth.kortex_email, org: auth.kortex_org };
+      return { jwt: auth.kortex_jwt, email: auth.kortex_email, orgs: auth.kortex_orgs ?? [] };
     }
 
     case 'GET_PROJECTS': {
@@ -70,11 +93,18 @@ async function handleMessage(msg) {
       return { projects };
     }
 
+    case 'SYNC_PROJECTS': {
+      const { kortex_jwt } = await getAuth();
+      if (!kortex_jwt) return { error: 'Not authenticated' };
+      const projects = await fetchAndStoreOrgs(kortex_jwt);
+      return { ok: true, projects };
+    }
+
     case 'ADD_PROJECT': {
       const projects = await getProjects();
       const exists = projects.find(p => p.token === msg.token);
       if (exists) return { error: 'Project already added' };
-      projects.push({ name: msg.name, token: msg.token });
+      projects.push({ name: msg.name, token: msg.token, orgName: 'Manual', orgId: '' });
       await setProjects(projects);
       return { ok: true, projects };
     }
@@ -89,16 +119,17 @@ async function handleMessage(msg) {
     case 'SEARCH': {
       const projects = await getProjects();
       if (!projects.length) return { results: [], total: 0 };
-      const tokens = projects.map(p => p.token);
+
+      // Filter by org if specified
+      const filtered = msg.orgId
+        ? projects.filter(p => p.orgId === msg.orgId)
+        : projects;
+
+      const tokens = filtered.map(p => p.token);
       const res = await fetch(`${API_BASE}/ext/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tokens,
-          query: msg.query,
-          context: msg.context,
-          repo: msg.repo,
-        }),
+        body: JSON.stringify({ tokens, query: msg.query, context: msg.context, repo: msg.repo }),
       });
       if (res.status === 429) {
         const data = await res.json();
@@ -111,7 +142,8 @@ async function handleMessage(msg) {
     case 'QA': {
       const projects = await getProjects();
       if (!projects.length) return { error: 'No projects added' };
-      const token = projects[0].token;
+      const filtered = msg.orgId ? projects.filter(p => p.orgId === msg.orgId) : projects;
+      const token = filtered[0]?.token ?? projects[0].token;
       const res = await fetch(`${API_BASE}/qa`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Kodingo-Token': token },

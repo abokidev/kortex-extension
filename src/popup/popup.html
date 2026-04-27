@@ -17,7 +17,7 @@
     font-size: 12px; font-weight: 700; color: #00C4FF;
   }
   .logo-text { font-size: 14px; font-weight: 700; }
-  .status { font-size: 11px; color: #7a909e; margin-bottom: 12px; }
+  .status { font-size: 11px; color: #7a909e; margin-bottom: 12px; line-height: 1.5; }
   .status span { color: #00C4FF; font-weight: 600; }
   .btn {
     width: 100%; padding: 9px; border-radius: 8px; border: none;
@@ -29,6 +29,11 @@
     border: 1px solid rgba(255,255,255,0.08); color: #e8edf2;
   }
   .btn-secondary:hover { background: rgba(255,255,255,0.08); }
+  .btn-sync {
+    background: rgba(0,196,255,0.08);
+    border: 1px solid rgba(0,196,255,0.2); color: #00C4FF;
+  }
+  .btn-sync:hover { background: rgba(0,196,255,0.15); }
   .shortcut { font-size: 10px; color: #4a5568; text-align: center; margin-top: 8px; }
   a { color: #00C4FF; font-size: 10px; display: block; text-align: center; margin-top: 8px; text-decoration: none; }
 </style>
@@ -40,6 +45,7 @@
 </div>
 <div class="status" id="status">Loading...</div>
 <button class="btn btn-primary" id="openBtn">Open Kortex sidebar</button>
+<button class="btn btn-sync" id="syncBtn">↺ Sync projects</button>
 <button class="btn btn-secondary" id="settingsBtn">Manage projects</button>
 <div class="shortcut">Keyboard shortcut: Cmd+Shift+K</div>
 <a href="https://kodingo.xyz/dashboard" target="_blank">Open dashboard →</a>
