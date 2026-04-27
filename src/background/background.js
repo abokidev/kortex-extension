@@ -210,3 +210,49 @@ async function readSessionFromTab() {
     return { ok: true, projectCount: 0 };
   }
 }
+
+// Handle CAPTURE_MEMORY from content script
+// This is added to the existing message handler via a separate listener
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'CAPTURE_MEMORY') {
+    captureMemoryFromBrowser(msg).then(sendResponse).catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+});
+
+async function captureMemoryFromBrowser(msg) {
+  const projects = await getProjects();
+  if (!projects.length) return { error: 'No projects' };
+
+  const API_BASE = 'https://kodingo-api.onrender.com';
+  const token = projects[0].token;
+
+  // Use HF to infer a memory from the text
+  const inferRes = await fetch(`${API_BASE}/infer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Kodingo-Token': token },
+    body: JSON.stringify({
+      symbol: msg.context?.site ?? 'browser',
+      code: msg.text,
+    }),
+  });
+
+  if (!inferRes.ok) return { error: 'Inference failed' };
+  const inferred = await inferRes.json();
+
+  // Save as proposed memory
+  const saveRes = await fetch(`${API_BASE}/memory`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Kodingo-Token': token },
+    body: JSON.stringify({
+      type: inferred.type ?? 'context',
+      title: inferred.title ?? 'Captured from browser',
+      content: inferred.content ?? msg.text,
+      tags: [...(inferred.tags ?? []), 'browser-capture', msg.context?.site ?? 'web'],
+      status: 'proposed',
+      confidence: 0.4,
+    }),
+  });
+
+  return saveRes.ok ? { ok: true } : { error: 'Save failed' };
+}

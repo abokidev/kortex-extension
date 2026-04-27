@@ -18,7 +18,8 @@
     "https://*.office.com/*",
     "https://*.sharepoint.com/*",
     "https://docs.google.com/*",
-    "https://kodingo.xyz/*"
+    "https://kodingo.xyz/*",
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "src/background/background.js"
@@ -35,13 +36,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://github.com/*",
-        "https://linear.app/*",
-        "https://*.atlassian.net/*",
-        "https://*.notion.so/*",
-        "https://*.office.com/*",
-        "https://*.sharepoint.com/*",
-        "https://docs.google.com/*"
+        "<all_urls>"
       ],
       "js": [
         "src/content/content.js"
@@ -49,7 +44,16 @@
       "css": [
         "src/sidebar/sidebar.css"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "exclude_matches": [
+        "https://accounts.google.com/*",
+        "https://*.bank*/*",
+        "https://*.paypal.com/*",
+        "https://1password.com/*",
+        "https://*.lastpass.com/*",
+        "chrome://*/*",
+        "chrome-extension://*/*"
+      ]
     }
   ],
   "icons": {
