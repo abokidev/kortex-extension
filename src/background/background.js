@@ -55,11 +55,11 @@ chrome.commands.onCommand.addListener(async (command) => {
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: () => {
-          const iframe = document.getElementById('kortex-sidebar-iframe');
-          if (iframe) {
-            const isHidden = iframe.style.transform === 'translateX(100%)' || iframe.style.transform === '';
-            iframe.style.transform = isHidden ? 'translateX(0px)' : 'translateX(100%)';
-          }
+          const host = document.getElementById('kortex-shadow-host');
+          if (!host?.shadowRoot) return;
+          const panel = host.shadowRoot.getElementById('kortex-panel');
+          if (!panel) return;
+          panel.classList.toggle('visible');
         }
       }).catch(() => {});
     }
