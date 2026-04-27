@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Kortex</title>
+<link rel="stylesheet" href="sidebar.css"/>
+</head>
+<body>
+<div id="app">
+  <div class="header">
+    <div class="header-left">
+      <div class="logo-mark">K</div>
+      <span class="logo-text">Kortex</span>
+      <span class="context-badge" id="contextBadge"></span>
+    </div>
+    <div class="header-right">
+      <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
+      <button class="icon-btn" id="closeBtn" title="Close (Cmd+Shift+K)">✕</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="memory">Memory</button>
+    <button class="tab" data-tab="qa">Ask</button>
+  </div>
+
+  <!-- Memory tab -->
+  <div class="tab-content active" id="tab-memory">
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search codebase memory..." />
+      <button id="searchBtn">→</button>
+    </div>
+    <div id="results" class="results">
+      <div class="empty-state">
+        <div class="empty-icon">🧠</div>
+        <p>Kortex is reading the page...</p>
+        <p class="empty-sub">Memory will surface automatically.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q&A tab -->
+  <div class="tab-content" id="tab-qa">
+    <div id="qaMessages" class="qa-messages">
+      <div class="empty-state">
+        <div class="empty-icon">💬</div>
+        <p>Ask your codebase anything</p>
+        <p class="empty-sub">Answers grounded in affirmed memory.</p>
+      </div>
+    </div>
+    <div class="qa-input">
+      <input type="text" id="qaInput" placeholder="Why do we use Redis for sessions?" />
+      <button id="qaBtn">→</button>
+    </div>
+  </div>
+
+  <!-- Settings panel -->
+  <div class="settings-panel hidden" id="settingsPanel">
+    <div class="settings-header">
+      <span>Projects</span>
+      <button class="icon-btn" id="closeSettings">✕</button>
+    </div>
+    <div id="projectList" class="project-list"></div>
+    <div class="add-project">
+      <input type="text" id="projectName" placeholder="Project name" />
+      <input type="text" id="projectToken" placeholder="Project token" />
+      <button id="addProjectBtn">Add project</button>
+    </div>
+    <div class="settings-footer">
+      <button id="logoutBtn" class="logout-btn">Sign out</button>
+    </div>
+  </div>
+
+  <!-- Login panel -->
+  <div class="login-panel hidden" id="loginPanel">
+    <div class="login-inner">
+      <div class="login-logo">
+        <div class="logo-mark large">K</div>
+        <span class="logo-text large">Kortex</span>
+      </div>
+      <p class="login-sub">Sign in to surface codebase memory anywhere you work.</p>
+      <input type="email" id="loginEmail" placeholder="Email" />
+      <input type="password" id="loginPassword" placeholder="Password" />
+      <button id="loginBtn">Sign in</button>
+      <p id="loginError" class="error hidden"></p>
+      <a href="https://kodingo.xyz/signup" target="_blank" class="signup-link">Create account →</a>
+    </div>
+  </div>
+</div>
+<script src="sidebar.js"></script>
+</body>
+</html>

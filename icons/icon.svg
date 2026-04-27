@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#050810"/>
+  <rect width="128" height="128" rx="28" fill="url(#bg)" opacity="0.8"/>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a1628"/>
+      <stop offset="100%" stop-color="#050810"/>
+    </linearGradient>
+    <linearGradient id="kg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00C4FF"/>
+      <stop offset="100%" stop-color="#0077FF"/>
+    </linearGradient>
+  </defs>
+  <!-- K letterform -->
+  <path d="M34 26 L34 102 L54 102 L54 72 L78 102 L100 102 L68 64 L98 26 L76 26 L54 54 L54 26 Z"
+    fill="url(#kg)"/>
+  <!-- Negative space slash -->
+  <rect x="34" y="60" width="20" height="8" fill="#050810" opacity="0.6"/>
+</svg>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #050810; color: #e8edf2;
+    width: 280px; min-height: 120px; padding: 16px;
+  }
+  .header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .logo-mark {
+    width: 24px; height: 24px; background: rgba(0,196,255,0.15);
+    border: 1px solid rgba(0,196,255,0.3); border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: #00C4FF;
+  }
+  .logo-text { font-size: 14px; font-weight: 700; }
+  .status { font-size: 11px; color: #7a909e; margin-bottom: 12px; }
+  .status span { color: #00C4FF; font-weight: 600; }
+  .btn {
+    width: 100%; padding: 9px; border-radius: 8px; border: none;
+    font-size: 11px; font-weight: 600; cursor: pointer; margin-bottom: 6px;
+  }
+  .btn-primary { background: #00C4FF; color: #050810; }
+  .btn-secondary {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08); color: #e8edf2;
+  }
+  .btn-secondary:hover { background: rgba(255,255,255,0.08); }
+  .shortcut { font-size: 10px; color: #4a5568; text-align: center; margin-top: 8px; }
+  a { color: #00C4FF; font-size: 10px; display: block; text-align: center; margin-top: 8px; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo-mark">K</div>
+  <span class="logo-text">Kortex</span>
+</div>
+<div class="status" id="status">Loading...</div>
+<button class="btn btn-primary" id="openBtn">Open Kortex sidebar</button>
+<button class="btn btn-secondary" id="settingsBtn">Manage projects</button>
+<div class="shortcut">Keyboard shortcut: Cmd+Shift+K</div>
+<a href="https://kodingo.xyz/dashboard" target="_blank">Open dashboard →</a>
+<script src="popup.js"></script>
+</body>
+</html>
