@@ -27,15 +27,12 @@
   .btn-secondary { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #e8edf2; }
   .btn-secondary:hover { background: rgba(255,255,255,0.08); }
   .btn-sync { background: rgba(0,196,255,0.08); border: 1px solid rgba(0,196,255,0.2); color: #00C4FF; }
-  input {
-    width: 100%; background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
-    padding: 8px 10px; color: #e8edf2; font-size: 11px; margin-bottom: 6px;
-  }
-  input:focus { outline: none; border-color: rgba(0,196,255,0.4); }
-  .error { color: #FF4D4D; font-size: 10px; margin-bottom: 6px; display: none; }
+  .btn-ghost { background: none; border: 1px solid rgba(255,255,255,0.08); color: #7a909e; }
+  .error { color: #FF4D4D; font-size: 10px; margin-bottom: 6px; display: none; line-height: 1.4; }
   .shortcut { font-size: 10px; color: #4a5568; text-align: center; margin-top: 8px; }
+  .hint { font-size: 10px; color: #4a5568; line-height: 1.5; margin-bottom: 10px; }
   a.link { color: #00C4FF; font-size: 10px; display: block; text-align: center; margin-top: 8px; text-decoration: none; }
+  .divider { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 10px 0; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -45,14 +42,14 @@
   <span class="logo-text">Kortex</span>
 </div>
 
-<!-- Login form -->
+<!-- Login section -->
 <div id="loginSection">
-  <p style="font-size:11px;color:#7a909e;margin-bottom:10px;">Sign in to your Kodingo account</p>
-  <input type="email" id="email" placeholder="Email" />
-  <input type="password" id="password" placeholder="Password" />
+  <p class="hint">Sign in using your existing Kodingo session — no need to enter credentials again.</p>
+  <button class="btn btn-primary" id="loginWithKodingo">Open Kodingo to sign in</button>
+  <hr class="divider"/>
+  <p class="hint">Already signed into kodingo.xyz in this browser? Click below to connect.</p>
+  <button class="btn btn-ghost" id="checkSessionBtn">Connect existing session</button>
   <div class="error" id="loginError"></div>
-  <button class="btn btn-primary" id="loginBtn">Sign in</button>
-  <a class="link" href="https://kodingo.xyz/signup" target="_blank">Create account →</a>
 </div>
 
 <!-- Signed in section -->

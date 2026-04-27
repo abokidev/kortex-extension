@@ -1,6 +1,5 @@
 async function init() {
   const auth = await chrome.runtime.sendMessage({ type: 'GET_AUTH' });
-
   if (!auth.jwt) {
     showLogin();
   } else {
@@ -12,30 +11,31 @@ function showLogin() {
   document.getElementById('loginSection').classList.remove('hidden');
   document.getElementById('signedInSection').classList.add('hidden');
 
-  document.getElementById('loginBtn').addEventListener('click', async () => {
-    const email = document.getElementById('email').value.trim();
-    const password = document.getElementById('password').value;
-    const errEl = document.getElementById('loginError');
-    errEl.style.display = 'none';
-    if (!email || !password) return;
-
-    const btn = document.getElementById('loginBtn');
-    btn.textContent = 'Signing in...';
-    btn.disabled = true;
-
-    const res = await chrome.runtime.sendMessage({ type: 'LOGIN', email, password });
-
-    btn.textContent = 'Sign in';
-    btn.disabled = false;
-
-    if (res.error) {
-      errEl.textContent = res.error;
-      errEl.style.display = 'block';
+  document.getElementById('loginWithKodingo').addEventListener('click', async () => {
+    // Try to read session from an already-open kodingo.xyz tab first
+    const res = await chrome.runtime.sendMessage({ type: 'READ_SESSION_FROM_TAB' });
+    if (res.ok) {
+      init();
       return;
     }
+    // Otherwise open kodingo.xyz and wait for user to sign in
+    chrome.tabs.create({ url: 'https://kodingo.xyz/dashboard' });
+    window.close();
+  });
 
-    // Re-init to show signed in state
-    init();
+  document.getElementById('checkSessionBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('checkSessionBtn');
+    btn.textContent = 'Checking...';
+    btn.disabled = true;
+    const res = await chrome.runtime.sendMessage({ type: 'READ_SESSION_FROM_TAB' });
+    btn.textContent = 'I have signed in ✓';
+    btn.disabled = false;
+    if (res.ok) {
+      init();
+    } else {
+      document.getElementById('loginError').textContent = 'Session not found. Make sure you are signed into kodingo.xyz in this browser.';
+      document.getElementById('loginError').style.display = 'block';
+    }
   });
 }
 
@@ -47,10 +47,7 @@ async function showSignedIn(auth) {
   const count = projectsData.projects?.length ?? 0;
   const orgCount = auth.orgs?.length ?? 1;
 
-  const statusEl = document.getElementById('status');
-  statusEl.innerHTML = `Signed in as <span>${auth.email}</span><br/>${count} project${count !== 1 ? 's' : ''} across ${orgCount} org${orgCount !== 1 ? 's' : ''}`;
-
-  // Show sync button if signed in
+  document.getElementById('status').innerHTML = `Signed in as <span>${auth.email}</span><br/>${count} project${count !== 1 ? 's' : ''} across ${orgCount} org${orgCount !== 1 ? 's' : ''}`;
   document.getElementById('syncBtn').classList.remove('hidden');
 
   document.getElementById('openBtn').addEventListener('click', async () => {

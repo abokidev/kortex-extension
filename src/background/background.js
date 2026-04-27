@@ -166,3 +166,47 @@ async function handleMessage(msg) {
       return { error: `Unknown message type: ${msg.type}` };
   }
 }
+
+// ── Read session from kodingo.xyz tab ─────────────────────────────────────────
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'READ_SESSION_FROM_TAB') {
+    readSessionFromTab().then(sendResponse).catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+});
+
+async function readSessionFromTab() {
+  // Find an existing kodingo.xyz tab
+  const tabs = await chrome.tabs.query({ url: 'https://kodingo.xyz/*' });
+  
+  if (!tabs.length) {
+    return { ok: false, error: 'No kodingo.xyz tab found' };
+  }
+
+  // Execute script to read sessionStorage
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: tabs[0].id },
+    func: () => ({
+      token: sessionStorage.getItem('kodingo_token'),
+      orgId: sessionStorage.getItem('kodingo_org_id'),
+      email: sessionStorage.getItem('kodingo_login_email'),
+    }),
+  });
+
+  const data = results?.[0]?.result;
+  if (!data?.token) return { ok: false, error: 'Not signed in on kodingo.xyz' };
+
+  // Store JWT
+  await chrome.storage.local.set({
+    kortex_jwt: data.token,
+    kortex_email: data.email ?? '',
+  });
+
+  // Fetch all orgs and projects
+  try {
+    const projects = await fetchAndStoreOrgs(data.token);
+    return { ok: true, projectCount: projects.length };
+  } catch (e) {
+    return { ok: true, projectCount: 0 };
+  }
+}

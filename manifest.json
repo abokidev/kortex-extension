@@ -6,7 +6,8 @@
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "https://kodingo-api.onrender.com/*",
@@ -16,7 +17,8 @@
     "https://*.notion.so/*",
     "https://*.office.com/*",
     "https://*.sharepoint.com/*",
-    "https://docs.google.com/*"
+    "https://docs.google.com/*",
+    "https://kodingo.xyz/*"
   ],
   "background": {
     "service_worker": "src/background/background.js"
