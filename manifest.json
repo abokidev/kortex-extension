@@ -44,13 +44,14 @@
       "css": [
         "src/sidebar/sidebar.css"
       ],
-      "run_at": "document_idle",
+      "run_at": "document_end",
       "exclude_matches": [
         "https://accounts.google.com/*",
         "https://www.paypal.com/*",
         "https://1password.com/*",
         "https://lastpass.com/*"
-      ]
+      ],
+      "all_frames": false
     }
   ],
   "icons": {
@@ -67,5 +68,14 @@
         "<all_urls>"
       ]
     }
-  ]
+  ],
+  "commands": {
+    "toggle_sidebar": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Toggle Kortex sidebar"
+    }
+  }
 }
