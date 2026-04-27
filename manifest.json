@@ -47,12 +47,9 @@
       "run_at": "document_idle",
       "exclude_matches": [
         "https://accounts.google.com/*",
-        "https://*.bank*/*",
-        "https://*.paypal.com/*",
+        "https://www.paypal.com/*",
         "https://1password.com/*",
-        "https://*.lastpass.com/*",
-        "chrome://*/*",
-        "chrome-extension://*/*"
+        "https://lastpass.com/*"
       ]
     }
   ],
