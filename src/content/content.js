@@ -1,13 +1,52 @@
 const KORTEX_HOST_ID = 'kortex-shadow-host';
-const MIN_CAPTURE_LENGTH = 80;
+const MIN_CAPTURE_LENGTH = 40;
 
 let sidebarVisible = false;
 let shadowRoot = null;
 let lastSearchQuery = '';
 let searchTimer = null;
 let captureTimer = null;
-let capturedTexts = new Set();
+let capturedSignals = new Set();
 let observerStarted = false;
+let projectNames = [];
+let projectNamesLoaded = false;
+
+// ── Load project names from background ───────────────────────────────────────
+async function loadProjectNames() {
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'GET_PROJECT_NAMES' });
+    projectNames = (res.names ?? []).map(n => n.toLowerCase().trim());
+    projectNamesLoaded = true;
+  } catch {
+    projectNames = [];
+    projectNamesLoaded = true;
+  }
+}
+
+// ── Check if text contains a known project name ───────────────────────────────
+function detectProjectTrigger(text) {
+  if (!text || !projectNames.length) return null;
+  const lower = text.toLowerCase();
+  for (const name of projectNames) {
+    if (name.length < 3) continue;
+    // Match whole word only — avoid partial matches
+    const regex = new RegExp(`\\b${name.replace(/[-]/g, '[\\-]')}\\b`, 'i');
+    if (regex.test(lower)) return name;
+  }
+  return null;
+}
+
+// ── Extract surrounding paragraph containing the trigger ──────────────────────
+function extractSignalContext(text, triggerName) {
+  if (!text) return text;
+  const lower = text.toLowerCase();
+  const idx = lower.indexOf(triggerName.toLowerCase());
+  if (idx === -1) return text.slice(0, 600);
+  // Get surrounding context — up to 300 chars before and after the trigger
+  const start = Math.max(0, idx - 200);
+  const end = Math.min(text.length, idx + 400);
+  return text.slice(start, end).trim();
+}
 
 // ── Context detection ─────────────────────────────────────────────────────────
 function detectContext() {
@@ -32,7 +71,7 @@ function detectContext() {
 // ── Extract typed text ────────────────────────────────────────────────────────
 function extractTypedText() {
   const active = document.activeElement;
-  if (active && active.id !== KORTEX_HOST_ID && !active.closest('#' + KORTEX_HOST_ID)) {
+  if (active && !active.closest('#' + KORTEX_HOST_ID)) {
     if (active.tagName === 'TEXTAREA') return active.value.slice(0, 800);
     if (active.tagName === 'INPUT' && active.type !== 'password') return active.value.slice(0, 400);
     if (active.isContentEditable) return active.innerText?.trim().slice(0, 800) ?? '';
@@ -51,25 +90,63 @@ function extractTypedText() {
   return '';
 }
 
-// ── Decision detection ────────────────────────────────────────────────────────
-function looksLikeDecision(text) {
-  if (text.length < MIN_CAPTURE_LENGTH) return false;
-  const phrases = ['we should','we will','we decided','we chose','we use','we need to','the reason','because','in order to','this allows','this ensures','architecture','approach','decision','strategy','implement','we switched','we are using','going forward','as a team'];
-  return phrases.some(p => text.toLowerCase().includes(p));
+// ── Enriched capture toast with inferred memory ───────────────────────────────
+async function showCaptureToast(signal, triggerName, inferred, existingThread) {
+  if (document.getElementById('kortex-toast')) document.getElementById('kortex-toast').remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'kortex-toast';
+  toast.style.cssText = 'position:fixed;bottom:80px;right:20px;z-index:2147483647;background:#0d1318;border:1px solid rgba(0,196,255,0.35);border-radius:12px;padding:14px 16px;max-width:340px;box-shadow:0 4px 24px rgba(0,0,0,0.7);font-family:-apple-system,sans-serif;';
+
+  const conf = Math.round((inferred.confidence ?? 0.5) * 100);
+  const confColour = conf >= 70 ? '#34d399' : conf >= 40 ? '#f59e0b' : '#FF4D4D';
+  const typeColour = inferred.type === 'decision' ? '#a78bfa' : inferred.type === 'note' ? '#34d399' : '#fb923c';
+
+  const threadInfo = existingThread
+    ? `<div style="background:rgba(0,196,255,0.06);border:1px solid rgba(0,196,255,0.15);border-radius:6px;padding:6px 8px;margin-bottom:8px;font-size:10px;color:#7a909e;">Adds to existing thread: <span style="color:#00C4FF;font-weight:600;">${existingThread.title}</span> (${existingThread.signalCount} signals)</div>`
+    : '';
+
+  toast.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <div style="width:20px;height:20px;background:rgba(0,196,255,0.15);border:1px solid rgba(0,196,255,0.3);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#00C4FF;flex-shrink:0;">K</div>
+      <p style="font-size:11px;font-weight:600;color:#e8edf2;margin:0;">Kortex captured a signal</p>
+      <span style="font-size:9px;color:#4a5568;margin-left:auto;">trigger: <span style="color:#00C4FF">${triggerName}</span></span>
+    </div>
+    ${threadInfo}
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:10px;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;text-transform:uppercase;color:${typeColour};background:${typeColour}18">${inferred.type ?? 'context'}</span>
+        <span style="font-size:9px;font-family:monospace;color:${confColour};margin-left:auto;">${conf}% confidence</span>
+      </div>
+      <p style="font-size:11px;font-weight:600;color:#e8edf2;margin:0 0 4px;">${inferred.title ?? 'Untitled'}</p>
+      <p style="font-size:10px;color:#7a909e;margin:0;line-height:1.4;">${(inferred.content ?? signal).slice(0, 100)}${(inferred.content ?? signal).length > 100 ? '…' : ''}</p>
+    </div>
+    <div style="display:flex;gap:6px;">
+      <button id="k-affirm-btn" style="flex:1;background:#34d399;color:#050810;border:none;border-radius:6px;padding:6px;font-size:10px;font-weight:700;cursor:pointer;">✓ Affirm</button>
+      <button id="k-save-btn" style="flex:1;background:#00C4FF;color:#050810;border:none;border-radius:6px;padding:6px;font-size:10px;font-weight:700;cursor:pointer;">Save proposed</button>
+      <button id="k-dismiss-btn" style="background:rgba(255,255,255,0.06);color:#7a909e;border:none;border-radius:6px;padding:6px 10px;font-size:10px;cursor:pointer;">✕</button>
+    </div>`;
+
+  document.documentElement.appendChild(toast);
+
+  toast.querySelector('#k-affirm-btn').addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'CAPTURE_MEMORY', text: signal, context: detectContext(), status: 'affirmed' });
+    toast.remove();
+  });
+  toast.querySelector('#k-save-btn').addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'CAPTURE_MEMORY', text: signal, context: detectContext(), status: 'proposed' });
+    toast.remove();
+  });
+  toast.querySelector('#k-dismiss-btn').addEventListener('click', () => toast.remove());
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 20000);
 }
 
 // ── Shadow DOM sidebar ────────────────────────────────────────────────────────
 const SIDEBAR_CSS = `
   :host { all: initial; }
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-  #kortex-panel {
-    position: fixed; top: 0; right: 0; width: 340px; height: 100vh;
-    background: #050810; color: #e8edf2; z-index: 2147483647;
-    box-shadow: -4px 0 24px rgba(0,0,0,0.6);
-    transform: translateX(100%); transition: transform 0.25s ease;
-    display: flex; flex-direction: column; overflow: hidden;
-  }
-  #kortex-panel.visible { transform: translateX(0); }
+  #kortex-panel { position:fixed;top:0;right:0;width:340px;height:100vh;background:#050810;color:#e8edf2;z-index:2147483647;box-shadow:-4px 0 24px rgba(0,0,0,0.6);transform:translateX(100%);transition:transform 0.25s ease;display:flex;flex-direction:column;overflow:hidden; }
+  #kortex-panel.visible { transform:translateX(0); }
   .k-header { display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,0.06);background:#050810;flex-shrink:0; }
   .k-logo { display:flex;align-items:center;gap:8px; }
   .k-mark { width:22px;height:22px;background:rgba(0,196,255,0.15);border:1px solid rgba(0,196,255,0.3);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#00C4FF; }
@@ -87,7 +164,7 @@ const SIDEBAR_CSS = `
   .k-results { flex:1;overflow-y:auto;padding:8px; }
   .k-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;text-align:center;color:#7a909e;gap:6px;font-size:12px; }
   .k-empty-icon { font-size:28px; }
-  .k-card { background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:default; }
+  .k-card { background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:10px 12px;margin-bottom:6px; }
   .k-card:hover { background:rgba(255,255,255,0.06); }
   .k-card-meta { display:flex;align-items:center;gap:5px;margin-bottom:5px;flex-wrap:wrap; }
   .k-type { font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;text-transform:uppercase; }
@@ -112,6 +189,7 @@ const SIDEBAR_CSS = `
   .k-qa-thinking { color:#7a909e;font-size:10px;padding:4px 0; }
   .k-tab-content { display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0; }
   .k-tab-content.active { display:flex; }
+  .k-thread-badge { font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;background:rgba(0,196,255,0.1);color:#00C4FF;margin-left:auto; }
 `;
 
 const SIDEBAR_HTML = `
@@ -126,21 +204,21 @@ const SIDEBAR_HTML = `
       <button class="k-close" id="k-close">✕</button>
     </div>
     <div class="k-tabs">
-      <button class="k-tab active" data-tab="memory">Memory</button>
+      <button class="k-tab active" data-tab="memory">Intelligence</button>
       <button class="k-tab" data-tab="qa">Ask</button>
     </div>
     <div class="k-tab-content active" id="k-tab-memory">
       <div class="k-search">
-        <input type="text" id="k-search-input" placeholder="Search codebase memory..." />
+        <input type="text" id="k-search-input" placeholder="Search codebase intelligence..." />
         <button id="k-search-btn">→</button>
       </div>
       <div class="k-results" id="k-results">
-        <div class="k-empty"><div class="k-empty-icon">🧠</div><span>Kortex is watching this page</span><span style="font-size:10px;color:#4a5568;">Memory will surface automatically</span></div>
+        <div class="k-empty"><div class="k-empty-icon">🧠</div><span>Watching for project signals</span><span style="font-size:10px;color:#4a5568;">Intelligence surfaces when your projects are mentioned</span></div>
       </div>
     </div>
     <div class="k-tab-content" id="k-tab-qa">
       <div class="k-qa-messages" id="k-qa-messages">
-        <div class="k-empty"><div class="k-empty-icon">💬</div><span>Ask your codebase anything</span><span style="font-size:10px;color:#4a5568;">Grounded in affirmed memory</span></div>
+        <div class="k-empty"><div class="k-empty-icon">💬</div><span>Ask your codebase anything</span><span style="font-size:10px;color:#4a5568;">Grounded in affirmed intelligence</span></div>
       </div>
       <div class="k-qa-input">
         <input type="text" id="k-qa-input" placeholder="Why do we use Redis for sessions?" />
@@ -152,19 +230,15 @@ const SIDEBAR_HTML = `
 
 function injectSidebar() {
   if (document.getElementById(KORTEX_HOST_ID)) return;
-
   const host = document.createElement('div');
   host.id = KORTEX_HOST_ID;
-  host.style.cssText = 'position:fixed;top:0;right:0;z-index:2147483647;pointer-events:none;';
+  host.style.cssText = 'position:fixed;top:0;right:0;z-index:2147483647;pointer-events:auto;';
   document.documentElement.appendChild(host);
-
   shadowRoot = host.attachShadow({ mode: 'open' });
   shadowRoot.innerHTML = SIDEBAR_HTML;
 
   const panel = shadowRoot.getElementById('kortex-panel');
-  host.style.pointerEvents = 'auto';
 
-  // Tabs
   shadowRoot.querySelectorAll('.k-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       shadowRoot.querySelectorAll('.k-tab').forEach(t => t.classList.remove('active'));
@@ -174,21 +248,17 @@ function injectSidebar() {
     });
   });
 
-  // Close
   shadowRoot.getElementById('k-close').addEventListener('click', () => {
     sidebarVisible = false;
     panel.classList.remove('visible');
   });
 
-  // Search
   shadowRoot.getElementById('k-search-btn').addEventListener('click', () => {
     doSearch(shadowRoot.getElementById('k-search-input').value);
   });
   shadowRoot.getElementById('k-search-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') doSearch(e.target.value);
   });
-
-  // Q&A
   shadowRoot.getElementById('k-qa-btn').addEventListener('click', () => {
     doQA(shadowRoot.getElementById('k-qa-input').value);
   });
@@ -196,7 +266,6 @@ function injectSidebar() {
     if (e.key === 'Enter') doQA(e.target.value);
   });
 
-  // Set context badge
   const ctx = detectContext();
   if (ctx.site) shadowRoot.getElementById('k-ctx-badge').textContent = ctx.site;
 }
@@ -216,7 +285,7 @@ async function doSearch(query) {
   if (!query?.trim()) return;
   const resultsEl = shadowRoot?.getElementById('k-results');
   if (!resultsEl) return;
-  resultsEl.innerHTML = '<div class="k-loading">Searching memory...</div>';
+  resultsEl.innerHTML = '<div class="k-loading">Searching intelligence...</div>';
   const ctx = detectContext();
   const res = await chrome.runtime.sendMessage({ type: 'SEARCH', query: query.trim(), context: ctx.type, repo: ctx.repo });
   renderResults(res);
@@ -227,38 +296,45 @@ function renderResults(res) {
   const resultsEl = shadowRoot?.getElementById('k-results');
   if (!resultsEl) return;
   if (res?.limitReached) { resultsEl.innerHTML = `<div class="k-limit">${res.error}</div>`; return; }
-  if (res?.error) { resultsEl.innerHTML = `<div class="k-error">${res.error}</div>`; return; }
+  if (res?.error && !res?.results) { resultsEl.innerHTML = `<div class="k-error">${res.error}</div>`; return; }
   const results = res?.results ?? [];
-  if (!results.length) { resultsEl.innerHTML = '<div class="k-empty"><div class="k-empty-icon">🔍</div><span>No memories found</span></div>'; return; }
+  if (!results.length) {
+    resultsEl.innerHTML = '<div class="k-empty"><div class="k-empty-icon">🔍</div><span>No intelligence found</span></div>';
+    return;
+  }
   resultsEl.innerHTML = results.map(r => {
     const colour = TYPE_COLOURS[r.type] ?? '#7a909e';
     const conf = Math.round(r.confidence * 100);
     const confColour = conf >= 70 ? '#34d399' : conf >= 40 ? '#f59e0b' : '#FF4D4D';
+    const threadBadge = r.threadPosition > 1 ? `<span class="k-thread-badge">${r.threadPosition} signals</span>` : '';
     return `<div class="k-card">
       <div class="k-card-meta">
         <span class="k-type" style="color:${colour};background:${colour}18">${r.type}</span>
         ${r.symbol ? `<span class="k-sym">${r.symbol}</span>` : ''}
         <span class="k-conf" style="color:${confColour}">${conf}%</span>
+        ${threadBadge}
         <span class="k-proj">${r.projectName}</span>
       </div>
       <div class="k-title-text">${r.title ?? 'Untitled'}</div>
       <div class="k-content">${r.content.slice(0, 120)}${r.content.length > 120 ? '…' : ''}</div>
       ${r.status === 'proposed' ? `<div class="k-actions">
-        <button class="k-affirm" data-id="${r.id}" data-token="">✓ Affirm</button>
-        <button class="k-deny" data-id="${r.id}" data-token="">✕ Deny</button>
+        <button class="k-affirm" data-id="${r.id}">✓ Affirm</button>
+        <button class="k-deny" data-id="${r.id}">✕ Deny</button>
       </div>` : ''}
     </div>`;
   }).join('');
 
   resultsEl.querySelectorAll('.k-affirm').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      chrome.runtime.sendMessage({ type: 'AFFIRM', memoryId: btn.dataset.id, status: 'affirmed', token: btn.dataset.token });
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      chrome.runtime.sendMessage({ type: 'AFFIRM', memoryId: btn.dataset.id, status: 'affirmed', token: '' });
       btn.closest('.k-actions').innerHTML = '<span style="color:#34d399;font-size:9px;">✓ Affirmed</span>';
     });
   });
   resultsEl.querySelectorAll('.k-deny').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      chrome.runtime.sendMessage({ type: 'AFFIRM', memoryId: btn.dataset.id, status: 'denied', token: btn.dataset.token });
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      chrome.runtime.sendMessage({ type: 'AFFIRM', memoryId: btn.dataset.id, status: 'denied', token: '' });
       btn.closest('.k-actions').innerHTML = '<span style="color:#FF4D4D;font-size:9px;">✕ Denied</span>';
     });
   });
@@ -295,56 +371,56 @@ async function doQA(question) {
   msgsEl.scrollTop = msgsEl.scrollHeight;
 }
 
-// ── Toast notification ────────────────────────────────────────────────────────
-function showCaptureProposal(text) {
-  if (document.getElementById('kortex-toast')) return;
-  const toast = document.createElement('div');
-  toast.id = 'kortex-toast';
-  toast.style.cssText = 'position:fixed;bottom:80px;right:20px;z-index:2147483647;background:#0d1318;border:1px solid rgba(0,196,255,0.35);border-radius:12px;padding:12px 14px;max-width:300px;box-shadow:0 4px 24px rgba(0,0,0,0.6);font-family:-apple-system,sans-serif;';
-  toast.innerHTML = `
-    <div style="display:flex;align-items:flex-start;gap:10px;">
-      <div style="min-width:20px;height:20px;background:rgba(0,196,255,0.15);border:1px solid rgba(0,196,255,0.3);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#00C4FF;">K</div>
-      <div style="flex:1;">
-        <p style="font-size:11px;font-weight:600;color:#e8edf2;margin:0 0 4px;">Kortex spotted a potential decision</p>
-        <p style="font-size:10px;color:#7a909e;margin:0 0 8px;line-height:1.4;">"${text.slice(0,90)}${text.length>90?'…':''}"</p>
-        <div style="display:flex;gap:6px;">
-          <button id="k-toast-save" style="background:#00C4FF;color:#050810;border:none;border-radius:6px;padding:5px 12px;font-size:10px;font-weight:700;cursor:pointer;">Save to memory</button>
-          <button id="k-toast-dismiss" style="background:rgba(255,255,255,0.06);color:#7a909e;border:none;border-radius:6px;padding:5px 10px;font-size:10px;cursor:pointer;">Dismiss</button>
-        </div>
-      </div>
-    </div>`;
-  document.documentElement.appendChild(toast);
-  toast.querySelector('#k-toast-save').addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'CAPTURE_MEMORY', text, context: detectContext() });
-    toast.remove();
-  });
-  toast.querySelector('#k-toast-dismiss').addEventListener('click', () => toast.remove());
-  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 15000);
-}
-
-// ── Text watching ─────────────────────────────────────────────────────────────
+// ── Text change handler — project name trigger only ───────────────────────────
 function onTextChange() {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    const text = extractTypedText();
-    if (text.length > 15 && text !== lastSearchQuery) {
-      lastSearchQuery = text;
-      const ctx = detectContext();
-      chrome.runtime.sendMessage({ type: 'SEARCH', query: text.slice(0,300), context: ctx.type, repo: ctx.repo })
-        .then(res => renderResults(res))
-        .catch(() => {});
-    }
-  }, 1000);
+  if (!projectNamesLoaded || !projectNames.length) return;
 
   clearTimeout(captureTimer);
-  captureTimer = setTimeout(() => {
+  captureTimer = setTimeout(async () => {
     const text = extractTypedText();
-    const key = text.slice(0, 50);
-    if (looksLikeDecision(text) && !capturedTexts.has(key)) {
-      capturedTexts.add(key);
-      showCaptureProposal(text);
+    if (text.length < MIN_CAPTURE_LENGTH) return;
+
+    const trigger = detectProjectTrigger(text);
+    if (!trigger) return;
+
+    const signalKey = text.slice(0, 60);
+    if (capturedSignals.has(signalKey)) return;
+    capturedSignals.add(signalKey);
+
+    // Extract surrounding context
+    const signal = extractSignalContext(text, trigger);
+
+    // Auto-search sidebar with project name
+    if (signal.length > 10 && signal !== lastSearchQuery) {
+      lastSearchQuery = signal;
+      chrome.runtime.sendMessage({ type: 'SEARCH', query: trigger, context: detectContext().type, repo: '' })
+        .then(res => {
+          if (res?.results?.length) {
+            renderResults(res);
+            // Auto-show sidebar
+            if (!sidebarVisible && shadowRoot) {
+              sidebarVisible = true;
+              shadowRoot.getElementById('kortex-panel')?.classList.add('visible');
+            }
+          }
+        })
+        .catch(() => {});
     }
-  }, 3000);
+
+    // Run inference on the signal
+    try {
+      const inferRes = await chrome.runtime.sendMessage({
+        type: 'INFER_SIGNAL',
+        text: signal,
+        trigger,
+        context: detectContext(),
+      });
+
+      if (inferRes?.inferred) {
+        await showCaptureToast(signal, trigger, inferRes.inferred, inferRes.existingThread ?? null);
+      }
+    } catch {}
+  }, 2500);
 }
 
 function startWatching() {
@@ -358,17 +434,25 @@ function startWatching() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-function init() {
+async function init() {
+  // Auth gate — do nothing if not signed in
+  const auth = await chrome.runtime.sendMessage({ type: 'CHECK_AUTH' });
+  if (!auth.authenticated) return;
+
+  await loadProjectNames();
   injectSidebar();
   startWatching();
+
+  // Initial page scan for project names
   setTimeout(() => {
-    const q = `${document.title} ${document.querySelector('h1')?.textContent ?? ''}`.trim();
-    if (q.length > 5) {
-      chrome.runtime.sendMessage({ type: 'SEARCH', query: q.slice(0,200), context: detectContext().type, repo: '' })
+    const pageText = document.title + ' ' + (document.querySelector('h1')?.textContent ?? '');
+    const trigger = detectProjectTrigger(pageText);
+    if (trigger) {
+      chrome.runtime.sendMessage({ type: 'SEARCH', query: trigger, context: detectContext().type, repo: '' })
         .then(res => { if (res?.results?.length) renderResults(res); })
         .catch(() => {});
     }
-  }, 2500);
+  }, 2000);
 }
 
 if (document.readyState === 'loading') {
@@ -376,3 +460,17 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+// Messages from background
+window.addEventListener('message', async event => {
+  const msg = event.data;
+  if (!msg?.type) return;
+  if (msg.type === 'KORTEX_CLOSE') {
+    sidebarVisible = false;
+    shadowRoot?.getElementById('kortex-panel')?.classList.remove('visible');
+  }
+  if (msg.type === 'OPEN_SETTINGS') {
+    sidebarVisible = true;
+    shadowRoot?.getElementById('kortex-panel')?.classList.add('visible');
+  }
+});

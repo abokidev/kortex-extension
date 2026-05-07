@@ -47,6 +47,40 @@ async function fetchAndStoreOrgs(jwt) {
   return projects;
 }
 
+// ── Signal terms — project names + repo names + top symbols ─────────────────
+async function refreshSignalTerms(projects) {
+  const terms = new Set();
+
+  for (const project of projects) {
+    // Add project name words (split on spaces, dashes, underscores)
+    const nameParts = project.name.toLowerCase().split(/[\s\-_]+/).filter(p => p.length > 2);
+    nameParts.forEach(p => terms.add(p));
+    terms.add(project.name.toLowerCase());
+
+    // Fetch top symbols for this project
+    try {
+      const res = await fetch(`${API_BASE}/memory?status=affirmed&limit=50`, {
+        headers: { 'X-Kodingo-Token': project.token },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const memories = data.data ?? [];
+        memories.forEach(m => {
+          if (m.symbol) terms.add(m.symbol.toLowerCase());
+          if (m.repo) {
+            const repoParts = m.repo.toLowerCase().split(/[\s\-_./]+/).filter(p => p.length > 2);
+            repoParts.forEach(p => terms.add(p));
+          }
+        });
+      }
+    } catch {}
+  }
+
+  const termsArray = Array.from(terms).filter(t => t.length > 2);
+  await chrome.storage.local.set({ kortex_signal_terms: termsArray });
+  return termsArray;
+}
+
 // ── Command listener — toggle sidebar ─────────────────────────────────────────
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === 'toggle_sidebar') {
@@ -85,6 +119,7 @@ async function handleMessage(msg) {
       if (!res.ok) return { error: data.error ?? 'Login failed' };
       await chrome.storage.local.set({ kortex_jwt: data.token, kortex_email: msg.email });
       const projects = await fetchAndStoreOrgs(data.token);
+      await refreshSignalTerms(projects);
       return { ok: true, projectCount: projects.length };
     }
 
@@ -107,7 +142,17 @@ async function handleMessage(msg) {
       const { kortex_jwt } = await getAuth();
       if (!kortex_jwt) return { error: 'Not authenticated' };
       const projects = await fetchAndStoreOrgs(kortex_jwt);
+      // Also refresh signal terms after sync
+      await refreshSignalTerms(projects);
       return { ok: true, projects };
+    }
+
+    case 'GET_SIGNAL_TERMS': {
+      return new Promise(resolve => {
+        chrome.storage.local.get(['kortex_signal_terms'], data => {
+          resolve({ terms: data.kortex_signal_terms ?? [] });
+        });
+      });
     }
 
     case 'ADD_PROJECT': {
@@ -162,6 +207,47 @@ async function handleMessage(msg) {
       return res.ok ? { ok: true } : { error: 'Affirm failed' };
     }
 
+    case 'INFER_SIGNAL': {
+      // Infer memory from signal text and check for existing thread
+      const projects = await getProjects();
+      if (!projects.length) return { error: 'No projects' };
+      const token = projects[0].token;
+      const inferRes = await fetch(`${API_BASE}/infer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kodingo-Token': token },
+        body: JSON.stringify({ symbol: msg.trigger ?? msg.context?.site ?? 'browser', code: msg.text }),
+      });
+      if (!inferRes.ok) return { error: 'Inference failed' };
+      const inferred = await inferRes.json();
+
+      // Search for existing thread match
+      const searchRes = await fetch(`${API_BASE}/ext/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tokens: projects.map(p => p.token),
+          query: inferred.title ?? msg.trigger,
+          context: msg.context?.type ?? 'generic',
+          repo: '',
+        }),
+      });
+
+      let existingThread = null;
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const topResult = searchData.results?.[0];
+        if (topResult && topResult.confidence >= 0.65 && topResult.threadPosition > 1) {
+          existingThread = {
+            title: topResult.title,
+            threadId: topResult.threadId,
+            signalCount: topResult.threadPosition,
+          };
+        }
+      }
+
+      return { inferred, existingThread };
+    }
+
     case 'CAPTURE_MEMORY': {
       const projects = await getProjects();
       if (!projects.length) return { error: 'No projects' };
@@ -181,8 +267,8 @@ async function handleMessage(msg) {
           title: inferred.title ?? 'Captured from browser',
           content: inferred.content ?? msg.text,
           tags: [...(inferred.tags ?? []), 'browser-capture', msg.context?.site ?? 'web'],
-          status: 'proposed',
-          confidence: 0.4,
+          status: msg.status ?? 'proposed',
+          confidence: msg.status === 'affirmed' ? 0.85 : 0.4,
         }),
       });
       return saveRes.ok ? { ok: true } : { error: 'Save failed' };
